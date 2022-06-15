@@ -1,0 +1,77 @@
+{
+	"name": "pl_sendemail",
+	"properties": {
+		"description": "This pipeline calls a logic app to send emails.\nSteps:\nRead file from gen2 blob storage and send the file as attachment to the specified email address.",
+		"activities": [
+			{
+				"name": "SendEmail",
+				"type": "WebActivity",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.00:30:00",
+					"retry": 2,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"url": {
+						"value": "@pipeline().parameters.LogicAppUrl",
+						"type": "Expression"
+					},
+					"method": "POST",
+					"headers": {
+						"Content-Type": {
+							"value": "application/json",
+							"type": "Expression"
+						}
+					},
+					"body": {
+						"value": "{\n  \"AttachmentName\": \"@{pipeline().parameters.AttachmentName}\",\n  \"DataFactoryName\": \"@{pipeline().parameters.DataFactoryName}\",\n  \"EmailTo\": \"@{pipeline().parameters.EmailTo}\",\n  \"BlobPath\": \"@{pipeline().parameters.BlobPath}\",\n  \"PipelineName\": \"@{pipeline().parameters.PipelineName}\",\n  \"Message\": \"@{pipeline().parameters.Message}\",\n  \"Subject\": \"@{pipeline().parameters.Subject}\",\n  \"StorageAccountName\": \"@{pipeline().parameters.StorageAccountName}\"\n}",
+						"type": "Expression"
+					}
+				}
+			}
+		],
+		"parameters": {
+			"LogicAppUrl": {
+				"type": "string",
+				"defaultValue": "https://prod-23.australiaeast.logic.azure.com:443/workflows/b67731cad30b4c3b8490421e271dcc49/triggers/manual/paths/invoke?api-version=2016-10-01&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=KVk37_tj3lEg2xnp0oYNqCVm-k7YP6r106bhwwfsLdA"
+			},
+			"StorageAccountName": {
+				"type": "string",
+				"defaultValue": "csaesadatalaketstgen2"
+			},
+			"BlobPath": {
+				"type": "string",
+				"defaultValue": "/temp/SCV/equipment_supply_poc/scv-events-report.csv"
+			},
+			"DataFactoryName": {
+				"type": "string",
+				"defaultValue": "CENTRALSERVICES-AE-DF-INGESTION-DEV"
+			},
+			"AttachmentName": {
+				"type": "string",
+				"defaultValue": "test.csv"
+			},
+			"EmailTo": {
+				"type": "string",
+				"defaultValue": "zahid.zaman@kotahi.co.nz"
+			},
+			"PipelineName": {
+				"type": "string",
+				"defaultValue": "pl_send_emails"
+			},
+			"Subject": {
+				"type": "string",
+				"defaultValue": "Test Report"
+			},
+			"Message": {
+				"type": "string",
+				"defaultValue": "Attached  file contains Test data"
+			}
+		},
+		"annotations": []
+	}
+}

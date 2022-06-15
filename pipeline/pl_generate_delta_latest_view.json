@@ -1,0 +1,213 @@
+{
+	"name": "pl_generate_delta_latest_view",
+	"properties": {
+		"activities": [
+			{
+				"name": "LookupLatestViewTablesConfig",
+				"description": "Get table latest view configuration",
+				"type": "Lookup",
+				"dependsOn": [],
+				"policy": {
+					"timeout": "0.00:30:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select * from @{pipeline().parameters.TableSchema}.@{pipeline().parameters.ConfigTableName}  where table_name ='@{pipeline().parameters.TableName}'",
+							"type": "Expression"
+						},
+						"queryTimeout": "00:10:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_AZSQL_GENERIC",
+						"type": "DatasetReference",
+						"parameters": {
+							"SERVER_NAME": {
+								"value": "@pipeline().parameters.DBServer",
+								"type": "Expression"
+							},
+							"DB_NAME": {
+								"value": "@pipeline().parameters.DBName",
+								"type": "Expression"
+							},
+							"DB_USER_NAME": {
+								"value": "@pipeline().parameters.DBUserName",
+								"type": "Expression"
+							},
+							"DB_PWD_SECRET": {
+								"value": "@pipeline().parameters.DBPasswordSecret",
+								"type": "Expression"
+							},
+							"TABLE_SCHEMA": {
+								"value": "@pipeline().parameters.TableSchema",
+								"type": "Expression"
+							},
+							"TABLE_NAME": {
+								"value": "@pipeline().parameters.TableName",
+								"type": "Expression"
+							},
+							"KEY_VAULT_URL": {
+								"value": "@pipeline().parameters.KeyVault",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "CountCheck",
+				"type": "IfCondition",
+				"dependsOn": [
+					{
+						"activity": "LookupLatestViewTablesConfig",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(int(activity('LookupLatestViewTablesConfig').output.count), 1)",
+						"type": "Expression"
+					},
+					"ifTrueActivities": [
+						{
+							"name": "GenerateLatestTableView",
+							"description": "This activity will generate latest view of the source table.\nif more than one columns are used for natural key use comma separated columns. \nFollowing query is used in the notebook to get the latest view\n\nwith CTE as (select *, ROW_NUMBER() OVER(Partition by {natural_key_cols} ORDER BY {orderby_col} desc) AS Row_Number from {src_db}.{src_table}) select * from CTE where Row_Number = 1\"",
+							"type": "DatabricksNotebook",
+							"dependsOn": [],
+							"policy": {
+								"timeout": "0.00:30:00",
+								"retry": 0,
+								"retryIntervalInSeconds": 30,
+								"secureOutput": false,
+								"secureInput": false
+							},
+							"userProperties": [],
+							"typeProperties": {
+								"notebookPath": {
+									"value": "@pipeline().parameters.NotebookPath",
+									"type": "Expression"
+								},
+								"baseParameters": {
+									"src_db": {
+										"value": "@activity('LookupLatestViewTablesConfig').output.value[0].source_DB",
+										"type": "Expression"
+									},
+									"src_table": {
+										"value": "@activity('LookupLatestViewTablesConfig').output.value[0].table_name",
+										"type": "Expression"
+									},
+									"natural_key_cols": {
+										"value": "@activity('LookupLatestViewTablesConfig').output.value[0].natural_key_cols",
+										"type": "Expression"
+									},
+									"orderby_col": {
+										"value": "@activity('LookupLatestViewTablesConfig').output.value[0].orderby_col",
+										"type": "Expression"
+									},
+									"dest_db": {
+										"value": "@pipeline().parameters.DestinationDB",
+										"type": "Expression"
+									},
+									"dest_container": {
+										"value": "@pipeline().parameters.DestinationContainer",
+										"type": "Expression"
+									},
+									"dest_storage_account": {
+										"value": "@pipeline().parameters.DestinationStorageAccount",
+										"type": "Expression"
+									}
+								}
+							},
+							"linkedServiceName": {
+								"referenceName": "ls_azdatabricks",
+								"type": "LinkedServiceReference",
+								"parameters": {
+									"workspace_url": {
+										"value": "@pipeline().parameters.DatabricksUrl",
+										"type": "Expression"
+									},
+									"secret_name": {
+										"value": "@pipeline().parameters.DatabricksKeySecret",
+										"type": "Expression"
+									},
+									"vault_url": {
+										"value": "@pipeline().parameters.KeyVault",
+										"type": "Expression"
+									}
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"KeyVault": {
+				"type": "string",
+				"defaultValue": "https://cs-ae-key-datalake-tst.vault.azure.net/"
+			},
+			"DatabricksUrl": {
+				"type": "string",
+				"defaultValue": "https://adb-3847542282576163.3.azuredatabricks.net/"
+			},
+			"DatabricksKeySecret": {
+				"type": "string",
+				"defaultValue": "DATABRICKS-TST"
+			},
+			"NotebookPath": {
+				"type": "string",
+				"defaultValue": "/Users/zahid.zaman@kotahi.co.nz/CreateLatestTable"
+			},
+			"DestinationDB": {
+				"type": "string",
+				"defaultValue": "Kotahi_latest_view_dev"
+			},
+			"DestinationStorageAccount": {
+				"type": "string",
+				"defaultValue": "csaesadatalaketstgen2"
+			},
+			"DestinationContainer": {
+				"type": "string",
+				"defaultValue": "kotahi-latest-zone"
+			},
+			"DBServer": {
+				"type": "string",
+				"defaultValue": "centralservices-ae-sqldb-dl-tst.database.windows.net"
+			},
+			"DBName": {
+				"type": "string",
+				"defaultValue": "CENTRALSERVICES-AE-SQLDB-DL-TST"
+			},
+			"DBUserName": {
+				"type": "string",
+				"defaultValue": "IngestionUser"
+			},
+			"DBPasswordSecret": {
+				"type": "string",
+				"defaultValue": "IngestionUser"
+			},
+			"TableSchema": {
+				"type": "string",
+				"defaultValue": "ingestion"
+			},
+			"ConfigTableName": {
+				"type": "string",
+				"defaultValue": "LatestViewTablesConfig"
+			},
+			"TableName": {
+				"type": "string",
+				"defaultValue": "coastal_orders_dbo_orderlinebookingresponse"
+			}
+		},
+		"annotations": []
+	}
+}

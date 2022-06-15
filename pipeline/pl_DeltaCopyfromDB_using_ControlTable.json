@@ -1,0 +1,1953 @@
+{
+	"name": "pl_DeltaCopyfromDB_using_ControlTable",
+	"properties": {
+		"description": "Copy new or updated rows only from database using external control table",
+		"activities": [
+			{
+				"name": "Lookup_extraction_config",
+				"type": "Lookup",
+				"dependsOn": [
+					{
+						"activity": "Trigger type",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "00.00:30:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"source": {
+						"type": "AzureSqlSource",
+						"sqlReaderQuery": {
+							"value": "select ExtractionID,Category,Source_Schema,Source_Table,Target_Type,Target_Level0,Target_Level1,Target_Level2,Ingestion_User,Watermark_Column,WatermarkColumnType,WatermarkValue,Server_Name,[DB_Name],[User_Name],Secret_Name as source_secret,E_KeyVault_Url as source_keyValut,LoadType,TriggerName,L_KeyVault_Url as target_keyValut,L_KeyVault_secret as target_secret,coma_seperated_cols_to_select\n from @{pipeline().parameters.Config_Table_Table_Name} c join @{pipeline().parameters.ConnectionProperties_Table} conn on (c.ConnectionID=conn.ConnectionID) join @{pipeline().parameters.Target_config_table} target on (c.TargetID=target.TargetID)\nwhere c.Enabled=1 \nand c.RunType='@{pipeline().parameters.RunType}'\nand c.Category='@{pipeline().parameters.Category}'\nand  c.TriggerName like  '%@{variables('Trigger')}%'",
+							"type": "Expression"
+						},
+						"queryTimeout": "02:00:00",
+						"partitionOption": "None"
+					},
+					"dataset": {
+						"referenceName": "DS_AZSQL_GENERIC",
+						"type": "DatasetReference",
+						"parameters": {
+							"SERVER_NAME": {
+								"value": "@pipeline().parameters.Control_Tables_Server_Name",
+								"type": "Expression"
+							},
+							"DB_NAME": {
+								"value": "@pipeline().parameters.Control_Tables_DB_Name",
+								"type": "Expression"
+							},
+							"DB_USER_NAME": {
+								"value": "@pipeline().parameters.Control_Tables_DB_User",
+								"type": "Expression"
+							},
+							"DB_PWD_SECRET": {
+								"value": "@pipeline().parameters.Control_Tables_DB_Secret",
+								"type": "Expression"
+							},
+							"TABLE_SCHEMA": {
+								"value": "'DUMMY'",
+								"type": "Expression"
+							},
+							"TABLE_NAME": {
+								"value": "@pipeline().parameters.Config_Table_Table_Name",
+								"type": "Expression"
+							},
+							"KEY_VAULT_URL": {
+								"value": "@pipeline().parameters.Control_Table_KeyValut",
+								"type": "Expression"
+							}
+						}
+					},
+					"firstRowOnly": false
+				}
+			},
+			{
+				"name": "Iterate",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "IncrementalLoad",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('IncrementalLoad').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Switch1",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@item().Category",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "SQL_TO_DL",
+										"activities": [
+											{
+												"name": "LookupCurrentWaterMark1",
+												"description": "Retrieve  the current maximum value in watermark column of source data store",
+												"type": "Lookup",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "SqlServerSource",
+														"sqlReaderQuery": {
+															"value": "@concat('select MAX(',item().Watermark_Column, ') as NewWatermarkValue from ',item().Source_Schema,'.',item().Source_Table)",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"dataset": {
+														"referenceName": "DS_SELFHOSTED_SQL_GENERIC",
+														"type": "DatasetReference",
+														"parameters": {
+															"DB_NAME": {
+																"value": "@item().DB_Name",
+																"type": "Expression"
+															},
+															"SERVER_NAME": {
+																"value": "@item().Server_Name",
+																"type": "Expression"
+															},
+															"DB_USER_NAME": {
+																"value": "@item().User_Name",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().source_keyValut",
+																"type": "Expression"
+															},
+															"DB_PWD_SECRET": {
+																"value": "@item().source_secret",
+																"type": "Expression"
+															},
+															"TABLE_SCHEMA": {
+																"value": "@item().Source_Schema",
+																"type": "Expression"
+															},
+															"TABLE_NAME": {
+																"value": "@item().Source_Table",
+																"type": "Expression"
+															}
+														}
+													}
+												}
+											},
+											{
+												"name": "INCREMENTAL_SQL_TO_DL",
+												"description": "Copy activity to use query to filter the delta data by > last high-watermark and <= current high-watermark from source database, and then only copy the changes to the destination store.",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "Set variable2_1_1",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "SqlServerSource",
+														"additionalColumns": [
+															{
+																"name": "SnapshotTimestamp",
+																"value": {
+																	"value": "@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyy-MM-dd HH:mm:ss')}",
+																	"type": "Expression"
+																}
+															},
+															{
+																"name": "SnapshotBy",
+																"value": {
+																	"value": "@{pipeline().DataFactory}:@{pipeline().Pipeline}",
+																	"type": "Expression"
+																}
+															},
+															{
+																"name": "SnapshotTimestampUTC",
+																"value": {
+																	"value": "@{formatDateTime(utcnow(),'yyyy-MM-dd HH:mm:ss')}",
+																	"type": "Expression"
+																}
+															}
+														],
+														"sqlReaderQuery": {
+															"value": "select @{variables('columns_to_select')} from @{item().Source_Schema}.@{item().Source_Table} \n where @{item().Watermark_Column} > '@{item().WatermarkValue}' and @{item().Watermark_Column} <= '@{activity('LookupCurrentWaterMark1').output.firstRow.NewWatermarkValue}'",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "ParquetSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "ParquetWriteSettings"
+														}
+													},
+													"enableStaging": false,
+													"dataIntegrationUnits": 0
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_SELFHOSTED_SQL_GENERIC",
+														"type": "DatasetReference",
+														"parameters": {
+															"DB_NAME": {
+																"value": "@item().DB_Name",
+																"type": "Expression"
+															},
+															"SERVER_NAME": {
+																"value": "@item().Server_Name",
+																"type": "Expression"
+															},
+															"DB_USER_NAME": {
+																"value": "@item().User_Name",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().source_keyValut",
+																"type": "Expression"
+															},
+															"DB_PWD_SECRET": {
+																"value": "@item().source_secret",
+																"type": "Expression"
+															},
+															"TABLE_SCHEMA": {
+																"value": "@item().Source_Schema",
+																"type": "Expression"
+															},
+															"TABLE_NAME": {
+																"value": "@item().Source_Table",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_AZDLGEN2_GENERIC_PARQUET",
+														"type": "DatasetReference",
+														"parameters": {
+															"DL_CONTAINER": {
+																"value": "@item().Target_Level1",
+																"type": "Expression"
+															},
+															"DL_ROOT_DIR": {
+																"value": "@{item().Target_Level2}/@{item().DB_Name}/@{item().Source_Schema}.@{replace(replace(replace(item().Source_Table,'[',''),']',''), ' ', '')}/@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyy/MM/dd')}",
+																"type": "Expression"
+															},
+															"DL_URL": {
+																"value": "@item().Target_Level0",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().target_keyValut",
+																"type": "Expression"
+															},
+															"KEY_VAULT_SECRET": {
+																"value": "@item().target_secret",
+																"type": "Expression"
+															},
+															"DL_FILE_NAME": {
+																"value": "@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyyMMddHHmm')}",
+																"type": "Expression"
+															},
+															"SERVICE_PRINCIPAL_ID": {
+																"value": "@item().ingestion_user",
+																"type": "Expression"
+															},
+															"TENANT_ID": {
+																"value": "@pipeline().parameters.Ingestion_sp_tenant",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "UpdateWaterMark_copy1",
+												"description": "Stored procedure activity to store the new high-watermark value into external control table for delta data loading. ",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "INCREMENTAL_SQL_TO_DL",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[ingestion].[updateExtractionWatermarkValue]",
+													"storedProcedureParameters": {
+														"extractionId": {
+															"value": {
+																"value": "@item().ExtractionID",
+																"type": "Expression"
+															},
+															"type": "Int32"
+														},
+														"LastModifiedValue": {
+															"value": {
+																"value": "@activity('LookupCurrentWaterMark1').output.firstRow.NewWatermarkValue",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_AZSQL_DB_GENERIC",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"DB_NAME": {
+															"value": "@pipeline().parameters.Control_Tables_DB_Name",
+															"type": "Expression"
+														},
+														"SERVER_NAME": {
+															"value": "@pipeline().parameters.Control_Tables_Server_Name",
+															"type": "Expression"
+														},
+														"DB_USER_NAME": {
+															"value": "@pipeline().parameters.Control_Tables_DB_User",
+															"type": "Expression"
+														},
+														"KEY_VAULT_URL": {
+															"value": "@pipeline().parameters.Control_Table_KeyValut",
+															"type": "Expression"
+														},
+														"DB_PWD_SECRET": {
+															"value": "@pipeline().parameters.Control_Tables_DB_Secret",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "Set variable2_1_1",
+												"type": "SetVariable",
+												"dependsOn": [
+													{
+														"activity": "LookupCurrentWaterMark1",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "columns_to_select",
+													"value": {
+														"value": "@if(equals(item().coma_seperated_cols_to_select,NULL),'*',item().coma_seperated_cols_to_select)",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "AZSQL_TO_ADB_DELTA",
+										"activities": [
+											{
+												"name": "LookupCurrentWaterMark2",
+												"description": "Retrieve  the current maximum value in watermark column of source data store",
+												"type": "Lookup",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"sqlReaderQuery": {
+															"value": "@concat('select MAX(',item().Watermark_Column, ') as NewWatermarkValue from ',item().Source_Schema,'.',item().Source_Table)",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"dataset": {
+														"referenceName": "DS_AZSQL_GENERIC",
+														"type": "DatasetReference",
+														"parameters": {
+															"SERVER_NAME": {
+																"value": "@item().Server_Name",
+																"type": "Expression"
+															},
+															"DB_NAME": {
+																"value": "@item().DB_Name",
+																"type": "Expression"
+															},
+															"DB_USER_NAME": {
+																"value": "@item().User_Name",
+																"type": "Expression"
+															},
+															"DB_PWD_SECRET": {
+																"value": "@item().source_secret",
+																"type": "Expression"
+															},
+															"TABLE_SCHEMA": {
+																"value": "@item().Source_Schema",
+																"type": "Expression"
+															},
+															"TABLE_NAME": {
+																"value": "@item().Source_Table",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().source_keyValut",
+																"type": "Expression"
+															}
+														}
+													}
+												}
+											},
+											{
+												"name": "INCREMENTAL_AZSQL_TO_ADB_DELTA",
+												"description": "Copy activity to use query to filter the delta data by > last high-watermark and <= current high-watermark from source database, and then only copy the changes to the destination store.",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "Set variable2_1",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"additionalColumns": [
+															{
+																"name": "DataLoadTimestamp",
+																"value": {
+																	"value": "@{formatDateTime(utcnow(),'yyyy-MM-dd HH:mm:ss')}",
+																	"type": "Expression"
+																}
+															}
+														],
+														"sqlReaderQuery": {
+															"value": "select @{variables('columns_to_select')} from @{item().Source_Schema}.@{item().Source_Table} where @{item().Watermark_Column} > '@{item().WatermarkValue}' and @{item().Watermark_Column} <= '@{activity('LookupCurrentWaterMark2').output.firstRow.NewWatermarkValue}'",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureDatabricksDeltaLakeSink",
+														"importSettings": {
+															"type": "AzureDatabricksDeltaLakeImportCommand"
+														}
+													},
+													"enableStaging": true,
+													"stagingSettings": {
+														"linkedServiceName": {
+															"referenceName": "LS_AZDLGEN2_GENERIC_SP_AUTH",
+															"type": "LinkedServiceReference",
+															"parameters": {
+																"DL_URL": {
+																	"value": "@pipeline().parameters.Staging_dl_url",
+																	"type": "Expression"
+																},
+																"TENANT_ID": {
+																	"value": "@pipeline().parameters.Ingestion_sp_tenant",
+																	"type": "Expression"
+																},
+																"SERVICE_PRINCIPAL_ID": {
+																	"value": "@pipeline().parameters.Ingestion_sp_id",
+																	"type": "Expression"
+																},
+																"KEY_VAULT_URL": {
+																	"value": "@pipeline().parameters.Ingestion_sp_key_vault",
+																	"type": "Expression"
+																},
+																"SERVICE_PRINCIPAL_SECRET": {
+																	"value": "@pipeline().parameters.Ingestion_sp_key",
+																	"type": "Expression"
+																}
+															}
+														},
+														"path": "staging/to_delta_tables",
+														"enableCompression": true
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_AZSQL_GENERIC",
+														"type": "DatasetReference",
+														"parameters": {
+															"SERVER_NAME": {
+																"value": "@item().Server_Name",
+																"type": "Expression"
+															},
+															"DB_NAME": {
+																"value": "@item().DB_Name",
+																"type": "Expression"
+															},
+															"DB_USER_NAME": {
+																"value": "@item().User_Name",
+																"type": "Expression"
+															},
+															"DB_PWD_SECRET": {
+																"value": "@item().source_secret",
+																"type": "Expression"
+															},
+															"TABLE_SCHEMA": {
+																"value": "@item().Source_Schema",
+																"type": "Expression"
+															},
+															"TABLE_NAME": {
+																"value": "@item().Source_Table",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().source_keyValut",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_AZ_DATABRICKS_DELTA",
+														"type": "DatasetReference",
+														"parameters": {
+															"DATABRICKS_DB": {
+																"value": "@split(item().Target_Level2,'.')[0]",
+																"type": "Expression"
+															},
+															"DATABRICKS_DELTA_TABLE": {
+																"value": "@split(item().Target_Level2,'.')[1]",
+																"type": "Expression"
+															},
+															"DATABRICKS_HOST": {
+																"value": "@item().Target_Level0",
+																"type": "Expression"
+															},
+															"DATABRICKS_CLUSTER": {
+																"value": "@item().Target_Level1",
+																"type": "Expression"
+															},
+															"DATABRICKS_KEY_VAULT": {
+																"value": "@item().target_keyValut",
+																"type": "Expression"
+															},
+															"DATABRICKS_SECRET": {
+																"value": "@item().target_secret",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "UpdateWaterMark_copy2",
+												"description": "Stored procedure activity to store the new high-watermark value into external control table for delta data loading. ",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "INCREMENTAL_AZSQL_TO_ADB_DELTA",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[ingestion].[updateExtractionWatermarkValue]",
+													"storedProcedureParameters": {
+														"extractionId": {
+															"value": {
+																"value": "@item().ExtractionID",
+																"type": "Expression"
+															},
+															"type": "Int32"
+														},
+														"LastModifiedValue": {
+															"value": {
+																"value": "@activity('LookupCurrentWaterMark2').output.firstRow.NewWatermarkValue",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_AZSQL_DB_GENERIC",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"DB_NAME": {
+															"value": "@pipeline().parameters.Control_Tables_DB_Name",
+															"type": "Expression"
+														},
+														"SERVER_NAME": {
+															"value": "@pipeline().parameters.Control_Tables_Server_Name",
+															"type": "Expression"
+														},
+														"DB_USER_NAME": {
+															"value": "@pipeline().parameters.Control_Tables_DB_User",
+															"type": "Expression"
+														},
+														"KEY_VAULT_URL": {
+															"value": "@pipeline().parameters.Control_Table_KeyValut",
+															"type": "Expression"
+														},
+														"DB_PWD_SECRET": {
+															"value": "@pipeline().parameters.Control_Tables_DB_Secret",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "Set variable2_1",
+												"type": "SetVariable",
+												"dependsOn": [
+													{
+														"activity": "LookupCurrentWaterMark2",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "columns_to_select",
+													"value": {
+														"value": "@if(equals(item().coma_seperated_cols_to_select,NULL),'*',item().coma_seperated_cols_to_select)",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"value": "SQL_TO_ADB_DELTA",
+										"activities": [
+											{
+												"name": "LookupCurrentWaterMark2_1",
+												"description": "Retrieve  the current maximum value in watermark column of source data store",
+												"type": "Lookup",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "SqlServerSource",
+														"sqlReaderQuery": {
+															"value": "@concat('select MAX(',item().Watermark_Column, ') as NewWatermarkValue from ',item().Source_Schema,'.',item().Source_Table)",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"dataset": {
+														"referenceName": "DS_SELFHOSTED_SQL_GENERIC",
+														"type": "DatasetReference",
+														"parameters": {
+															"DB_NAME": {
+																"value": "@item().DB_Name",
+																"type": "Expression"
+															},
+															"SERVER_NAME": {
+																"value": "@item().Server_Name",
+																"type": "Expression"
+															},
+															"DB_USER_NAME": {
+																"value": "@item().User_Name",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().source_keyValut",
+																"type": "Expression"
+															},
+															"DB_PWD_SECRET": {
+																"value": "@item().source_secret",
+																"type": "Expression"
+															},
+															"TABLE_SCHEMA": {
+																"value": "@item().Source_Schema",
+																"type": "Expression"
+															},
+															"TABLE_NAME": {
+																"value": "@item().Source_Table",
+																"type": "Expression"
+															}
+														}
+													}
+												}
+											},
+											{
+												"name": "INCREMENTAL_SQL_TO_ADB_DELTA",
+												"description": "Copy activity to use query to filter the delta data by > last high-watermark and <= current high-watermark from source database, and then only copy the changes to the destination store.",
+												"type": "Copy",
+												"dependsOn": [
+													{
+														"activity": "Set variable2",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "SqlServerSource",
+														"additionalColumns": [
+															{
+																"name": "DataLoadTimestamp",
+																"value": {
+																	"value": "@{formatDateTime(utcnow(),'yyyy-MM-dd HH:mm:ss')}",
+																	"type": "Expression"
+																}
+															}
+														],
+														"sqlReaderQuery": {
+															"value": "select @{variables('columns_to_select')} from @{item().Source_Schema}.@{item().Source_Table} where @{item().Watermark_Column} > '@{item().WatermarkValue}' and @{item().Watermark_Column} <= '@{activity('LookupCurrentWaterMark2_1').output.firstRow.NewWatermarkValue}'",
+															"type": "Expression"
+														},
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureDatabricksDeltaLakeSink",
+														"importSettings": {
+															"type": "AzureDatabricksDeltaLakeImportCommand"
+														}
+													},
+													"enableStaging": true,
+													"stagingSettings": {
+														"linkedServiceName": {
+															"referenceName": "LS_AZDLGEN2_GENERIC_SP_AUTH",
+															"type": "LinkedServiceReference",
+															"parameters": {
+																"DL_URL": {
+																	"value": "@pipeline().parameters.Staging_dl_url",
+																	"type": "Expression"
+																},
+																"TENANT_ID": {
+																	"value": "@pipeline().parameters.Ingestion_sp_tenant",
+																	"type": "Expression"
+																},
+																"SERVICE_PRINCIPAL_ID": {
+																	"value": "@pipeline().parameters.Ingestion_sp_id",
+																	"type": "Expression"
+																},
+																"KEY_VAULT_URL": {
+																	"value": "@pipeline().parameters.Ingestion_sp_key_vault",
+																	"type": "Expression"
+																},
+																"SERVICE_PRINCIPAL_SECRET": {
+																	"value": "@pipeline().parameters.Ingestion_sp_key",
+																	"type": "Expression"
+																}
+															}
+														},
+														"path": "staging/to_delta_tables",
+														"enableCompression": true
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_SELFHOSTED_SQL_GENERIC",
+														"type": "DatasetReference",
+														"parameters": {
+															"DB_NAME": {
+																"value": "@item().DB_Name",
+																"type": "Expression"
+															},
+															"SERVER_NAME": {
+																"value": "@item().Server_Name",
+																"type": "Expression"
+															},
+															"DB_USER_NAME": {
+																"value": "@item().User_Name",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().source_keyValut",
+																"type": "Expression"
+															},
+															"DB_PWD_SECRET": {
+																"value": "@item().source_secret",
+																"type": "Expression"
+															},
+															"TABLE_SCHEMA": {
+																"value": "@item().Source_Schema",
+																"type": "Expression"
+															},
+															"TABLE_NAME": {
+																"value": "@item().Source_Table",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_AZ_DATABRICKS_DELTA",
+														"type": "DatasetReference",
+														"parameters": {
+															"DATABRICKS_DB": {
+																"value": "@split(item().Target_Level2,'.')[0]",
+																"type": "Expression"
+															},
+															"DATABRICKS_DELTA_TABLE": {
+																"value": "@split(item().Target_Level2,'.')[1]",
+																"type": "Expression"
+															},
+															"DATABRICKS_HOST": {
+																"value": "@item().Target_Level0",
+																"type": "Expression"
+															},
+															"DATABRICKS_CLUSTER": {
+																"value": "@item().Target_Level1",
+																"type": "Expression"
+															},
+															"DATABRICKS_KEY_VAULT": {
+																"value": "@item().target_keyValut",
+																"type": "Expression"
+															},
+															"DATABRICKS_SECRET": {
+																"value": "@item().target_secret",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											},
+											{
+												"name": "UpdateWaterMark_copy2_copy1",
+												"description": "Stored procedure activity to store the new high-watermark value into external control table for delta data loading. ",
+												"type": "SqlServerStoredProcedure",
+												"dependsOn": [
+													{
+														"activity": "INCREMENTAL_SQL_TO_ADB_DELTA",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"storedProcedureName": "[ingestion].[updateExtractionWatermarkValue]",
+													"storedProcedureParameters": {
+														"extractionId": {
+															"value": {
+																"value": "@item().ExtractionID",
+																"type": "Expression"
+															},
+															"type": "Int32"
+														},
+														"LastModifiedValue": {
+															"value": {
+																"value": "@activity('LookupCurrentWaterMark2_1').output.firstRow.NewWatermarkValue",
+																"type": "Expression"
+															},
+															"type": "String"
+														}
+													}
+												},
+												"linkedServiceName": {
+													"referenceName": "LS_AZSQL_DB_GENERIC",
+													"type": "LinkedServiceReference",
+													"parameters": {
+														"DB_NAME": {
+															"value": "@pipeline().parameters.Control_Tables_DB_Name",
+															"type": "Expression"
+														},
+														"SERVER_NAME": {
+															"value": "@pipeline().parameters.Control_Tables_Server_Name",
+															"type": "Expression"
+														},
+														"DB_USER_NAME": {
+															"value": "@pipeline().parameters.Control_Tables_DB_User",
+															"type": "Expression"
+														},
+														"KEY_VAULT_URL": {
+															"value": "@pipeline().parameters.Control_Table_KeyValut",
+															"type": "Expression"
+														},
+														"DB_PWD_SECRET": {
+															"value": "@pipeline().parameters.Control_Tables_DB_Secret",
+															"type": "Expression"
+														}
+													}
+												}
+											},
+											{
+												"name": "Set variable2",
+												"type": "SetVariable",
+												"dependsOn": [
+													{
+														"activity": "LookupCurrentWaterMark2_1",
+														"dependencyConditions": [
+															"Succeeded"
+														]
+													}
+												],
+												"userProperties": [],
+												"typeProperties": {
+													"variableName": "columns_to_select",
+													"value": {
+														"value": "@if(equals(item().coma_seperated_cols_to_select,NULL),'*',item().coma_seperated_cols_to_select)",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								],
+								"defaultActivities": [
+									{
+										"name": "LookupCurrentWaterMark",
+										"description": "Retrieve  the current maximum value in watermark column of source data store",
+										"type": "Lookup",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "AzureSqlSource",
+												"sqlReaderQuery": {
+													"value": "@concat('select MAX(',item().Watermark_Column, ') as NewWatermarkValue from ',item().Source_Schema,'.',item().Source_Table)",
+													"type": "Expression"
+												},
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"dataset": {
+												"referenceName": "DS_AZSQL_GENERIC",
+												"type": "DatasetReference",
+												"parameters": {
+													"SERVER_NAME": {
+														"value": "@item().Server_Name",
+														"type": "Expression"
+													},
+													"DB_NAME": {
+														"value": "@item().DB_Name",
+														"type": "Expression"
+													},
+													"DB_USER_NAME": {
+														"value": "@item().User_Name",
+														"type": "Expression"
+													},
+													"DB_PWD_SECRET": {
+														"value": "@item().source_secret",
+														"type": "Expression"
+													},
+													"TABLE_SCHEMA": {
+														"value": "@item().Source_Schema",
+														"type": "Expression"
+													},
+													"TABLE_NAME": {
+														"value": "@item().Source_Table",
+														"type": "Expression"
+													},
+													"KEY_VAULT_URL": {
+														"value": "@item().source_keyValut",
+														"type": "Expression"
+													}
+												}
+											}
+										}
+									},
+									{
+										"name": "INCREMENTAL_AZSQL_TO_DL",
+										"description": "Copy activity to use query to filter the delta data by > last high-watermark and <= current high-watermark from source database, and then only copy the changes to the destination store.",
+										"type": "Copy",
+										"dependsOn": [
+											{
+												"activity": "LookupCurrentWaterMark",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "AzureSqlSource",
+												"additionalColumns": [
+													{
+														"name": "SnapshotTimestamp",
+														"value": {
+															"value": "@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyy-MM-dd HH:mm:ss')}",
+															"type": "Expression"
+														}
+													},
+													{
+														"name": "SnapshotBy",
+														"value": {
+															"value": "@{pipeline().DataFactory}:@{pipeline().Pipeline}",
+															"type": "Expression"
+														}
+													},
+													{
+														"name": "SnapshotTimestampUTC",
+														"value": {
+															"value": "@{formatDateTime(utcnow(),'yyyy-MM-dd HH:mm:ss')}",
+															"type": "Expression"
+														}
+													}
+												],
+												"sqlReaderQuery": {
+													"value": "select * from @{item().Source_Schema}.@{item().Source_Table} where @{item().Watermark_Column} > '@{item().WatermarkValue}' and @{item().Watermark_Column} <= '@{activity('LookupCurrentWaterMark').output.firstRow.NewWatermarkValue}'",
+													"type": "Expression"
+												},
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "ParquetSink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												},
+												"formatSettings": {
+													"type": "ParquetWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"dataIntegrationUnits": 0
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_AZSQL_GENERIC",
+												"type": "DatasetReference",
+												"parameters": {
+													"SERVER_NAME": {
+														"value": "@item().Server_Name",
+														"type": "Expression"
+													},
+													"DB_NAME": {
+														"value": "@item().DB_Name",
+														"type": "Expression"
+													},
+													"DB_USER_NAME": {
+														"value": "@item().User_Name",
+														"type": "Expression"
+													},
+													"DB_PWD_SECRET": {
+														"value": "@item().source_secret",
+														"type": "Expression"
+													},
+													"TABLE_SCHEMA": {
+														"value": "@item().Source_Schema",
+														"type": "Expression"
+													},
+													"TABLE_NAME": {
+														"value": "@item().Source_Table",
+														"type": "Expression"
+													},
+													"KEY_VAULT_URL": {
+														"value": "@item().source_keyValut",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_AZDLGEN2_GENERIC_PARQUET",
+												"type": "DatasetReference",
+												"parameters": {
+													"DL_CONTAINER": {
+														"value": "@item().Target_Level1",
+														"type": "Expression"
+													},
+													"DL_ROOT_DIR": {
+														"value": "@{item().Target_Level2}/@{item().DB_Name}/@{item().Source_Schema}.@{replace(replace(item().Source_Table,'[',''),']','')}/@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyy/MM/dd')}",
+														"type": "Expression"
+													},
+													"DL_URL": {
+														"value": "@item().Target_Level0",
+														"type": "Expression"
+													},
+													"KEY_VAULT_URL": {
+														"value": "@item().target_keyValut",
+														"type": "Expression"
+													},
+													"KEY_VAULT_SECRET": {
+														"value": "@item().target_secret",
+														"type": "Expression"
+													},
+													"DL_FILE_NAME": {
+														"value": "@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyyMMddHHmm')}",
+														"type": "Expression"
+													},
+													"SERVICE_PRINCIPAL_ID": {
+														"value": "@item().ingestion_user",
+														"type": "Expression"
+													},
+													"TENANT_ID": {
+														"value": "@pipeline().parameters.Ingestion_sp_tenant",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									},
+									{
+										"name": "UpdateWaterMark",
+										"description": "Stored procedure activity to store the new high-watermark value into external control table for delta data loading. ",
+										"type": "SqlServerStoredProcedure",
+										"dependsOn": [
+											{
+												"activity": "INCREMENTAL_AZSQL_TO_DL",
+												"dependencyConditions": [
+													"Succeeded"
+												]
+											}
+										],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"storedProcedureName": "[ingestion].[updateExtractionWatermarkValue]",
+											"storedProcedureParameters": {
+												"extractionId": {
+													"value": {
+														"value": "@item().ExtractionID",
+														"type": "Expression"
+													},
+													"type": "Int32"
+												},
+												"LastModifiedValue": {
+													"value": {
+														"value": "@activity('LookupCurrentWaterMark').output.firstRow.NewWatermarkValue",
+														"type": "Expression"
+													},
+													"type": "String"
+												}
+											}
+										},
+										"linkedServiceName": {
+											"referenceName": "LS_AZSQL_DB_GENERIC",
+											"type": "LinkedServiceReference",
+											"parameters": {
+												"DB_NAME": {
+													"value": "@pipeline().parameters.Control_Tables_DB_Name",
+													"type": "Expression"
+												},
+												"SERVER_NAME": {
+													"value": "@pipeline().parameters.Control_Tables_Server_Name",
+													"type": "Expression"
+												},
+												"DB_USER_NAME": {
+													"value": "@pipeline().parameters.Control_Tables_DB_User",
+													"type": "Expression"
+												},
+												"KEY_VAULT_URL": {
+													"value": "@pipeline().parameters.Control_Table_KeyValut",
+													"type": "Expression"
+												},
+												"DB_PWD_SECRET": {
+													"value": "@pipeline().parameters.Control_Tables_DB_Secret",
+													"type": "Expression"
+												}
+											}
+										}
+									}
+								]
+							}
+						},
+						{
+							"name": "CheckDelta",
+							"description": "Latest view is generated only for Delta tables",
+							"type": "IfCondition",
+							"dependsOn": [
+								{
+									"activity": "Switch1",
+									"dependencyConditions": [
+										"Succeeded"
+									]
+								}
+							],
+							"userProperties": [],
+							"typeProperties": {
+								"expression": {
+									"value": "@contains(item().Category, 'DELTA')",
+									"type": "Expression"
+								},
+								"ifTrueActivities": [
+									{
+										"name": "GenerateLatestView",
+										"description": "This activity will generate latest view of the table if the table is configured to have latest view",
+										"type": "ExecutePipeline",
+										"dependsOn": [],
+										"userProperties": [],
+										"typeProperties": {
+											"pipeline": {
+												"referenceName": "pl_generate_delta_latest_view",
+												"type": "PipelineReference"
+											},
+											"waitOnCompletion": true,
+											"parameters": {
+												"KeyVault": {
+													"value": "@pipeline().parameters.Control_Table_KeyValut",
+													"type": "Expression"
+												},
+												"DatabricksUrl": {
+													"value": "@item().Target_Level0",
+													"type": "Expression"
+												},
+												"DatabricksKeySecret": {
+													"value": "@pipeline().parameters.DatabricksKeySecret",
+													"type": "Expression"
+												},
+												"NotebookPath": {
+													"value": "@pipeline().parameters.NotebookPath",
+													"type": "Expression"
+												},
+												"DestinationDB": {
+													"value": "@pipeline().parameters.DestinationDB",
+													"type": "Expression"
+												},
+												"DestinationStorageAccount": {
+													"value": "@pipeline().parameters.DestinationStorageAccount",
+													"type": "Expression"
+												},
+												"DestinationContainer": {
+													"value": "kotahi-latest-zone",
+													"type": "Expression"
+												},
+												"DBServer": {
+													"value": "@pipeline().parameters.Control_Tables_Server_Name",
+													"type": "Expression"
+												},
+												"DBName": {
+													"value": "@pipeline().parameters.Control_Tables_DB_Name",
+													"type": "Expression"
+												},
+												"DBUserName": {
+													"value": "@pipeline().parameters.Control_Tables_DB_User",
+													"type": "Expression"
+												},
+												"DBPasswordSecret": {
+													"value": "@pipeline().parameters.Control_Tables_DB_Secret",
+													"type": "Expression"
+												},
+												"TableSchema": {
+													"value": "ingestion",
+													"type": "Expression"
+												},
+												"ConfigTableName": {
+													"value": "LatestViewTablesConfig",
+													"type": "Expression"
+												},
+												"TableName": {
+													"value": "@split(item().Target_Level2,'.')[1]",
+													"type": "Expression"
+												}
+											}
+										}
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "IncrementalLoad",
+				"type": "Filter",
+				"dependsOn": [
+					{
+						"activity": "Lookup_extraction_config",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('Lookup_extraction_config').output.value",
+						"type": "Expression"
+					},
+					"condition": {
+						"value": "@equals(item().LoadType,'INCREMENTAL')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "FullLoad",
+				"type": "Filter",
+				"dependsOn": [
+					{
+						"activity": "Lookup_extraction_config",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('Lookup_extraction_config').output.value",
+						"type": "Expression"
+					},
+					"condition": {
+						"value": "@equals(item().LoadType,'FULL')",
+						"type": "Expression"
+					}
+				}
+			},
+			{
+				"name": "Iterate2",
+				"type": "ForEach",
+				"dependsOn": [
+					{
+						"activity": "FullLoad",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"userProperties": [],
+				"typeProperties": {
+					"items": {
+						"value": "@activity('FullLoad').output.value",
+						"type": "Expression"
+					},
+					"activities": [
+						{
+							"name": "Switch2",
+							"type": "Switch",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"on": {
+									"value": "@pipeline().parameters.Category",
+									"type": "Expression"
+								},
+								"cases": [
+									{
+										"value": "SQL_TO_DL",
+										"activities": [
+											{
+												"name": "FullCopyfrom_SelfHosted_SQLDB",
+												"description": "",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "SqlServerSource",
+														"additionalColumns": [
+															{
+																"name": "SnapshotTimestamp",
+																"value": {
+																	"value": "@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyy-MM-dd HH:mm:ss')}",
+																	"type": "Expression"
+																}
+															},
+															{
+																"name": "SnapshotBy",
+																"value": {
+																	"value": "@{pipeline().DataFactory}:@{pipeline().Pipeline}",
+																	"type": "Expression"
+																}
+															},
+															{
+																"name": "SnapshotTimestampUTC",
+																"value": {
+																	"value": "@{formatDateTime(utcnow(),'yyyy-MM-dd HH:mm:ss')}",
+																	"type": "Expression"
+																}
+															}
+														],
+														"sqlReaderQuery": "select * from @{item().Source_Schema}.@{item().Source_Table} ",
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "ParquetSink",
+														"storeSettings": {
+															"type": "AzureBlobFSWriteSettings"
+														},
+														"formatSettings": {
+															"type": "ParquetWriteSettings"
+														}
+													},
+													"enableStaging": false,
+													"dataIntegrationUnits": 0
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_SELFHOSTED_SQL_GENERIC",
+														"type": "DatasetReference",
+														"parameters": {
+															"DB_NAME": {
+																"value": "@item().DB_Name",
+																"type": "Expression"
+															},
+															"SERVER_NAME": {
+																"value": "@item().Server_Name",
+																"type": "Expression"
+															},
+															"DB_USER_NAME": {
+																"value": "@item().User_Name",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().source_keyValut",
+																"type": "Expression"
+															},
+															"DB_PWD_SECRET": {
+																"value": "@item().source_secret",
+																"type": "Expression"
+															},
+															"TABLE_SCHEMA": {
+																"value": "@item().Source_Schema",
+																"type": "Expression"
+															},
+															"TABLE_NAME": {
+																"value": "@item().Source_Table",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_AZDLGEN2_GENERIC_PARQUET",
+														"type": "DatasetReference",
+														"parameters": {
+															"DL_CONTAINER": {
+																"value": "@item().Target_Level1",
+																"type": "Expression"
+															},
+															"DL_ROOT_DIR": {
+																"value": "@{item().Target_Level2}/@{item().DB_Name}/@{item().Source_Schema}.@{replace(replace(replace(item().Source_Table,'[',''),']',''), ' ', '')}/@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyy/MM/dd')}",
+																"type": "Expression"
+															},
+															"DL_URL": {
+																"value": "@item().Target_Level0",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().target_keyValut",
+																"type": "Expression"
+															},
+															"KEY_VAULT_SECRET": {
+																"value": "@item().target_secret",
+																"type": "Expression"
+															},
+															"DL_FILE_NAME": {
+																"value": "@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyyMMddHHmm')}",
+																"type": "Expression"
+															},
+															"SERVICE_PRINCIPAL_ID": {
+																"value": "@item().ingestion_user",
+																"type": "Expression"
+															},
+															"TENANT_ID": {
+																"value": "@pipeline().parameters.Ingestion_sp_tenant",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									},
+									{
+										"value": "AZSQL_TO_ADB_DELTA",
+										"activities": [
+											{
+												"name": "FULL_SQL_TO_ADB_DELTA",
+												"description": "Copy activity to use query to filter the delta data by > last high-watermark and <= current high-watermark from source database, and then only copy the changes to the destination store.",
+												"type": "Copy",
+												"dependsOn": [],
+												"policy": {
+													"timeout": "7.00:00:00",
+													"retry": 0,
+													"retryIntervalInSeconds": 30
+												},
+												"userProperties": [],
+												"typeProperties": {
+													"source": {
+														"type": "AzureSqlSource",
+														"additionalColumns": [
+															{
+																"name": "DataLoadTimestamp",
+																"value": {
+																	"value": "@{formatDateTime(utcnow(),'yyyy-MM-dd HH:mm:ss')}",
+																	"type": "Expression"
+																}
+															}
+														],
+														"queryTimeout": "02:00:00",
+														"partitionOption": "None"
+													},
+													"sink": {
+														"type": "AzureDatabricksDeltaLakeSink",
+														"importSettings": {
+															"type": "AzureDatabricksDeltaLakeImportCommand"
+														}
+													},
+													"enableStaging": true,
+													"stagingSettings": {
+														"linkedServiceName": {
+															"referenceName": "LS_AZDLGEN2_GENERIC_SP_AUTH",
+															"type": "LinkedServiceReference",
+															"parameters": {
+																"DL_URL": {
+																	"value": "@pipeline().parameters.Staging_dl_url",
+																	"type": "Expression"
+																},
+																"TENANT_ID": {
+																	"value": "@pipeline().parameters.Ingestion_sp_tenant",
+																	"type": "Expression"
+																},
+																"SERVICE_PRINCIPAL_ID": {
+																	"value": "@pipeline().parameters.Ingestion_sp_id",
+																	"type": "Expression"
+																},
+																"KEY_VAULT_URL": {
+																	"value": "@pipeline().parameters.Ingestion_sp_key_vault",
+																	"type": "Expression"
+																},
+																"SERVICE_PRINCIPAL_SECRET": {
+																	"value": "@pipeline().parameters.Ingestion_sp_key",
+																	"type": "Expression"
+																}
+															}
+														},
+														"path": "staging/to_delta_tables",
+														"enableCompression": true
+													}
+												},
+												"inputs": [
+													{
+														"referenceName": "DS_AZSQL_GENERIC",
+														"type": "DatasetReference",
+														"parameters": {
+															"SERVER_NAME": {
+																"value": "@item().Server_Name",
+																"type": "Expression"
+															},
+															"DB_NAME": {
+																"value": "@item().DB_Name",
+																"type": "Expression"
+															},
+															"DB_USER_NAME": {
+																"value": "@item().User_Name",
+																"type": "Expression"
+															},
+															"DB_PWD_SECRET": {
+																"value": "@item().source_secret",
+																"type": "Expression"
+															},
+															"TABLE_SCHEMA": {
+																"value": "@item().Source_Schema",
+																"type": "Expression"
+															},
+															"TABLE_NAME": {
+																"value": "@item().Source_Table",
+																"type": "Expression"
+															},
+															"KEY_VAULT_URL": {
+																"value": "@item().source_keyValut",
+																"type": "Expression"
+															}
+														}
+													}
+												],
+												"outputs": [
+													{
+														"referenceName": "DS_AZ_DATABRICKS_DELTA",
+														"type": "DatasetReference",
+														"parameters": {
+															"DATABRICKS_DB": {
+																"value": "@split(item().Target_Level2,'.')[0]",
+																"type": "Expression"
+															},
+															"DATABRICKS_DELTA_TABLE": {
+																"value": "@split(item().Target_Level2,'.')[1]",
+																"type": "Expression"
+															},
+															"DATABRICKS_HOST": {
+																"value": "@item().Target_Level0",
+																"type": "Expression"
+															},
+															"DATABRICKS_CLUSTER": {
+																"value": "@item().Target_Level1",
+																"type": "Expression"
+															},
+															"DATABRICKS_KEY_VAULT": {
+																"value": "@item().target_keyValut",
+																"type": "Expression"
+															},
+															"DATABRICKS_SECRET": {
+																"value": "@item().target_secret",
+																"type": "Expression"
+															}
+														}
+													}
+												]
+											}
+										]
+									}
+								],
+								"defaultActivities": [
+									{
+										"name": "FullCopyfrom_Azure_SQLDB",
+										"description": "",
+										"type": "Copy",
+										"dependsOn": [],
+										"policy": {
+											"timeout": "7.00:00:00",
+											"retry": 0,
+											"retryIntervalInSeconds": 30
+										},
+										"userProperties": [],
+										"typeProperties": {
+											"source": {
+												"type": "AzureSqlSource",
+												"additionalColumns": [
+													{
+														"name": "SnapshotTimestamp",
+														"value": {
+															"value": "@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyy-MM-dd HH:mm:ss')}",
+															"type": "Expression"
+														}
+													},
+													{
+														"name": "SnapshotBy",
+														"value": {
+															"value": "@{pipeline().DataFactory}:@{pipeline().Pipeline}",
+															"type": "Expression"
+														}
+													},
+													{
+														"name": "SnapshotTimestampUTC",
+														"value": {
+															"value": "@{formatDateTime(utcnow(),'yyyy-MM-dd HH:mm:ss')}",
+															"type": "Expression"
+														}
+													}
+												],
+												"queryTimeout": "02:00:00",
+												"partitionOption": "None"
+											},
+											"sink": {
+												"type": "ParquetSink",
+												"storeSettings": {
+													"type": "AzureBlobFSWriteSettings"
+												},
+												"formatSettings": {
+													"type": "ParquetWriteSettings"
+												}
+											},
+											"enableStaging": false,
+											"dataIntegrationUnits": 0
+										},
+										"inputs": [
+											{
+												"referenceName": "DS_AZSQL_GENERIC",
+												"type": "DatasetReference",
+												"parameters": {
+													"SERVER_NAME": {
+														"value": "@item().Server_Name",
+														"type": "Expression"
+													},
+													"DB_NAME": {
+														"value": "@item().DB_Name",
+														"type": "Expression"
+													},
+													"DB_USER_NAME": {
+														"value": "@item().User_Name",
+														"type": "Expression"
+													},
+													"DB_PWD_SECRET": {
+														"value": "@item().source_secret",
+														"type": "Expression"
+													},
+													"TABLE_SCHEMA": {
+														"value": "@item().Source_Schema",
+														"type": "Expression"
+													},
+													"TABLE_NAME": {
+														"value": "@item().Source_Table",
+														"type": "Expression"
+													},
+													"KEY_VAULT_URL": {
+														"value": "@item().source_keyValut",
+														"type": "Expression"
+													}
+												}
+											}
+										],
+										"outputs": [
+											{
+												"referenceName": "DS_AZDLGEN2_GENERIC_PARQUET",
+												"type": "DatasetReference",
+												"parameters": {
+													"DL_CONTAINER": {
+														"value": "@item().Target_Level1",
+														"type": "Expression"
+													},
+													"DL_ROOT_DIR": {
+														"value": "@{item().Target_Level2}/@{item().DB_Name}/@{item().Source_Schema}.@{replace(replace(item().Source_Table,'[',''),']','')}/@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyy/MM/dd')}",
+														"type": "Expression"
+													},
+													"DL_URL": {
+														"value": "@item().Target_Level0",
+														"type": "Expression"
+													},
+													"KEY_VAULT_URL": {
+														"value": "@item().target_keyValut",
+														"type": "Expression"
+													},
+													"KEY_VAULT_SECRET": {
+														"value": "@item().target_secret",
+														"type": "Expression"
+													},
+													"DL_FILE_NAME": {
+														"value": "@{formatDateTime(convertFromUtc(utcnow(),'New Zealand Standard Time'),'yyyyMMddHHmm')}",
+														"type": "Expression"
+													},
+													"SERVICE_PRINCIPAL_ID": {
+														"value": "@item().ingestion_user",
+														"type": "Expression"
+													},
+													"TENANT_ID": {
+														"value": "@pipeline().parameters.Ingestion_sp_tenant",
+														"type": "Expression"
+													}
+												}
+											}
+										]
+									}
+								]
+							}
+						}
+					]
+				}
+			},
+			{
+				"name": "Trigger type",
+				"description": "The Lookup _extraction_config query has a condition to match the Trigger Name for fetching the list of tables to extract from the config table.\nWhen the pipeline is triggered in debug or manual mode, the trigger name would not match with the configuration. To facilitate manual/debug run we use the variable 'Trigger' which is set to pipeline.TriggerType in case of 'manual/debug', pipeline.TriggerName incase of 'scheduled'.\n",
+				"type": "IfCondition",
+				"dependsOn": [],
+				"userProperties": [],
+				"typeProperties": {
+					"expression": {
+						"value": "@equals(pipeline().TriggerType,'Manual')",
+						"type": "Expression"
+					},
+					"ifFalseActivities": [
+						{
+							"name": "Set variable1_copy1",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "Trigger",
+								"value": {
+									"value": "@pipeline().TriggerName",
+									"type": "Expression"
+								}
+							}
+						}
+					],
+					"ifTrueActivities": [
+						{
+							"name": "Set variable1",
+							"type": "SetVariable",
+							"dependsOn": [],
+							"userProperties": [],
+							"typeProperties": {
+								"variableName": "Trigger",
+								"value": {
+									"value": "@{pipeline().TriggerType}",
+									"type": "Expression"
+								}
+							}
+						}
+					]
+				}
+			}
+		],
+		"parameters": {
+			"Control_Tables_Server_Name": {
+				"type": "String",
+				"defaultValue": "centralservices-ae-sqldb-dl-tst.database.windows.net"
+			},
+			"Config_Table_Table_Name": {
+				"type": "String",
+				"defaultValue": "ingestion.ExtractionConfig"
+			},
+			"Control_Tables_DB_Name": {
+				"type": "string",
+				"defaultValue": "CENTRALSERVICES-AE-SQLDB-DL-TST"
+			},
+			"Control_Tables_DB_User": {
+				"type": "string",
+				"defaultValue": "IngestionUser"
+			},
+			"Control_Tables_DB_Secret": {
+				"type": "string",
+				"defaultValue": "IngestionUser"
+			},
+			"ConnectionProperties_Table": {
+				"type": "string",
+				"defaultValue": "ingestion.ConnectionProperties"
+			},
+			"RunType": {
+				"type": "string",
+				"defaultValue": "Coastal_test"
+			},
+			"Category": {
+				"type": "string",
+				"defaultValue": "AZSQL_TO_DL"
+			},
+			"Target_config_table": {
+				"type": "string",
+				"defaultValue": "ingestion.TargetConfig"
+			},
+			"Control_Table_KeyValut": {
+				"type": "string",
+				"defaultValue": "https://cs-ae-key-datalake-tst.vault.azure.net/"
+			},
+			"Staging_dl_url": {
+				"type": "string",
+				"defaultValue": "https://csaesadatalaketstgen2.dfs.core.windows.net"
+			},
+			"Ingestion_sp_tenant": {
+				"type": "string",
+				"defaultValue": "c099fbd5-a5ab-448e-b816-16a377ab3167"
+			},
+			"Ingestion_sp_id": {
+				"type": "string",
+				"defaultValue": "358ffd29-8c1b-4081-9188-51b1a0fb20d6"
+			},
+			"Ingestion_sp_key_vault": {
+				"type": "string",
+				"defaultValue": "https://cs-ae-key-datalake-tst.vault.azure.net/"
+			},
+			"Ingestion_sp_key": {
+				"type": "string",
+				"defaultValue": "kotahi-dl-ingestion-sp"
+			},
+			"DatabricksKeySecret": {
+				"type": "string",
+				"defaultValue": "DATABRICKS-TST"
+			},
+			"NotebookPath": {
+				"type": "string",
+				"defaultValue": "/Users/zahid.zaman@kotahi.co.nz/CreateLatestTable"
+			},
+			"DestinationStorageAccount": {
+				"type": "string",
+				"defaultValue": "csaesadatalaketstgen2"
+			},
+			"DestinationDB": {
+				"type": "string",
+				"defaultValue": "Kotahi_latest_view_dev"
+			}
+		},
+		"variables": {
+			"Trigger": {
+				"type": "String"
+			},
+			"ADB_Token": {
+				"type": "String"
+			},
+			"columns_to_select": {
+				"type": "String",
+				"defaultValue": "*"
+			}
+		},
+		"annotations": [],
+		"lastPublishTime": "2021-02-16T02:46:06Z"
+	},
+	"type": "Microsoft.DataFactory/factories/pipelines"
+}
