@@ -1,0 +1,12 @@
+{
+	"name": "KotahiIR",
+	"properties": {
+		"type": "SelfHosted",
+		"typeProperties": {
+			"linkedInfo": {
+				"resourceId": "/subscriptions/6496325e-543c-40a5-83cd-010bc0b4ffd8/resourcegroups/CENTRALSERVICES-AE-RG-COMMON/providers/Microsoft.DataFactory/factories/CENTRALSERVICES-AE-DF-INTEGRATION-COMMON/integrationruntimes/kotahiIR",
+				"authorizationType": "Rbac"
+			}
+		}
+	}
+}
