@@ -1,0 +1,46 @@
+{
+	"name": "LS_AZSQL_DB_GENERIC",
+	"type": "Microsoft.DataFactory/factories/linkedservices",
+	"properties": {
+		"description": "to connect to any azsql db with sql authentication using parameters where the password is stored in the key vault ",
+		"parameters": {
+			"DB_NAME": {
+				"type": "String"
+			},
+			"SERVER_NAME": {
+				"type": "String"
+			},
+			"DB_USER_NAME": {
+				"type": "String"
+			},
+			"KEY_VAULT_URL": {
+				"type": "String"
+			},
+			"DB_PWD_SECRET": {
+				"type": "String"
+			}
+		},
+		"annotations": [],
+		"type": "AzureSqlDatabase",
+		"typeProperties": {
+			"connectionString": "Integrated Security=False;Encrypt=True;Connection Timeout=30;Data Source=@{linkedService().SERVER_NAME};Initial Catalog=@{linkedService().DB_NAME};User ID=@{linkedService().DB_USER_NAME}",
+			"password": {
+				"type": "AzureKeyVaultSecret",
+				"store": {
+					"referenceName": "LS_KEY_VAULT_GENERIC",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"baseUrl": {
+							"value": "@linkedService().KEY_VAULT_URL",
+							"type": "Expression"
+						}
+					}
+				},
+				"secretName": {
+					"value": "@linkedService().DB_PWD_SECRET",
+					"type": "Expression"
+				}
+			}
+		}
+	}
+}

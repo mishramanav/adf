@@ -1,0 +1,50 @@
+{
+	"name": "LS_SQL_DB_GENERIC",
+	"type": "Microsoft.DataFactory/factories/linkedservices",
+	"properties": {
+		"type": "SqlServer",
+		"description": "To connect to self-hosted SQL DB ",
+		"parameters": {
+			"DB_NAME": {
+				"type": "string"
+			},
+			"SERVER_NAME": {
+				"type": "string"
+			},
+			"DB_USER_NAME": {
+				"type": "string"
+			},
+			"KEY_VAULT_URL": {
+				"type": "string"
+			},
+			"DB_PWD_SECRET": {
+				"type": "string"
+			}
+		},
+		"annotations": [],
+		"typeProperties": {
+			"connectionString": "Integrated Security=False;Data Source=@{linkedService().SERVER_NAME};Initial Catalog=@{linkedService().DB_NAME};User ID=@{linkedService().DB_USER_NAME}",
+			"password": {
+				"type": "AzureKeyVaultSecret",
+				"store": {
+					"referenceName": "LS_KEY_VAULT_GENERIC",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"baseUrl": {
+							"value": "@linkedService().KEY_VAULT_URL",
+							"type": "Expression"
+						}
+					}
+				},
+				"secretName": {
+					"value": "@linkedService().DB_PWD_SECRET",
+					"type": "Expression"
+				}
+			}
+		},
+		"connectVia": {
+			"referenceName": "KotahiIR",
+			"type": "IntegrationRuntimeReference"
+		}
+	}
+}

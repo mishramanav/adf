@@ -1,0 +1,17 @@
+{
+	"name": "LS_KEY_VAULT_GENERIC",
+	"type": "Microsoft.DataFactory/factories/linkedservices",
+	"properties": {
+		"type": "AzureKeyVault",
+		"parameters": {
+			"baseUrl": {
+				"type": "String"
+			}
+		},
+		"annotations": [],
+		"typeProperties": {
+			"baseUrl": "@{linkedService().baseUrl}"
+		},
+		"description": "to connect to any az key vault passing the base url parameter. (provided the data factory has access to the key vault)"
+	}
+}

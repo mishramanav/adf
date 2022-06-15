@@ -1,0 +1,48 @@
+{
+	"name": "LS_AZDLGEN2_GENERIC_SP_AUTH",
+	"properties": {
+		"description": "Connection to DL Gen2 with service principal authentication",
+		"parameters": {
+			"DL_URL": {
+				"type": "String"
+			},
+			"TENANT_ID": {
+				"type": "String"
+			},
+			"SERVICE_PRINCIPAL_ID": {
+				"type": "String"
+			},
+			"KEY_VAULT_URL": {
+				"type": "String"
+			},
+			"SERVICE_PRINCIPAL_SECRET": {
+				"type": "String"
+			}
+		},
+		"annotations": [],
+		"type": "AzureBlobFS",
+		"typeProperties": {
+			"url": "@{linkedService().DL_URL}",
+			"tenant": "@{linkedService().TENANT_ID}",
+			"servicePrincipalId": "@{linkedService().SERVICE_PRINCIPAL_ID}",
+			"servicePrincipalCredentialType": "ServicePrincipalKey",
+			"servicePrincipalCredential": {
+				"type": "AzureKeyVaultSecret",
+				"store": {
+					"referenceName": "LS_KEY_VAULT_GENERIC",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"baseUrl": {
+							"value": "@linkedService().KEY_VAULT_URL",
+							"type": "Expression"
+						}
+					}
+				},
+				"secretName": {
+					"value": "@linkedService().SERVICE_PRINCIPAL_SECRET",
+					"type": "Expression"
+				}
+			}
+		}
+	}
+}

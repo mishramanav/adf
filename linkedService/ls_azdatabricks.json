@@ -1,0 +1,45 @@
+{
+	"name": "ls_azdatabricks",
+	"properties": {
+		"parameters": {
+			"workspace_url": {
+				"type": "string"
+			},
+			"secret_name": {
+				"type": "string"
+			},
+			"vault_url": {
+				"type": "string"
+			}
+		},
+		"annotations": [],
+		"type": "AzureDatabricks",
+		"typeProperties": {
+			"domain": "@linkedService().workspace_url",
+			"accessToken": {
+				"type": "AzureKeyVaultSecret",
+				"store": {
+					"referenceName": "LS_KEY_VAULT_GENERIC",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"baseUrl": {
+							"value": "@linkedService().vault_url",
+							"type": "Expression"
+						}
+					}
+				},
+				"secretName": {
+					"value": "@linkedService().secret_name",
+					"type": "Expression"
+				}
+			},
+			"newClusterNodeType": "Standard_DS3_v2",
+			"newClusterNumOfWorker": "1",
+			"newClusterSparkEnvVars": {
+				"PYSPARK_PYTHON": "/databricks/python3/bin/python3"
+			},
+			"newClusterVersion": "8.2.x-scala2.12",
+			"newClusterInitScripts": []
+		}
+	}
+}

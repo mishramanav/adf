@@ -1,0 +1,42 @@
+{
+	"name": "LS_AZDLGEN2_GENERIC",
+	"properties": {
+		"parameters": {
+			"DL_URL": {
+				"type": "String",
+				"defaultValue": "https://csaesadatalaketstgen2.dfs.core.windows.net"
+			},
+			"KEY_VAULT_URL": {
+				"type": "String",
+				"defaultValue": "https://cs-ae-key-datalake-tst.vault.azure.net/"
+			},
+			"GEN2_STORAGE_KEY": {
+				"type": "String",
+				"defaultValue": "Gen2StorageKey"
+			}
+		},
+		"annotations": [],
+		"type": "AzureBlobFS",
+		"typeProperties": {
+			"url": "@{linkedService().DL_URL}",
+			"accountKey": {
+				"type": "AzureKeyVaultSecret",
+				"store": {
+					"referenceName": "LS_KEY_VAULT_GENERIC",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"baseUrl": {
+							"value": "@linkedService().KEY_VAULT_URL",
+							"type": "Expression"
+						}
+					}
+				},
+				"secretName": {
+					"value": "@linkedService().GEN2_STORAGE_KEY",
+					"type": "Expression"
+				}
+			}
+		}
+	},
+	"type": "Microsoft.DataFactory/factories/linkedservices"
+}

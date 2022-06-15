@@ -1,0 +1,43 @@
+{
+	"name": "LS_AZ_DATABRICKS_DELTA",
+	"type": "Microsoft.DataFactory/factories/linkedservices",
+	"properties": {
+		"annotations": [],
+		"type": "AzureDatabricksDeltaLake",
+		"parameters": {
+			"DATABRICKS_HOST": {
+				"type": "String"
+			},
+			"DATABRICKS_CLUSTER": {
+				"type": "String"
+			},
+			"KEY_VAULT_URL": {
+				"type": "String"
+			},
+			"SERVICE_PRINCIPAL_TOKEN": {
+				"type": "String"
+			}
+		},
+		"typeProperties": {
+			"domain": "@{linkedService().DATABRICKS_HOST}",
+			"clusterId": "@{linkedService().DATABRICKS_CLUSTER}",
+			"accessToken": {
+				"type": "AzureKeyVaultSecret",
+				"store": {
+					"referenceName": "LS_KEY_VAULT_GENERIC",
+					"type": "LinkedServiceReference",
+					"parameters": {
+						"baseUrl": {
+							"value": "@linkedService().KEY_VAULT_URL",
+							"type": "Expression"
+						}
+					}
+				},
+				"secretName": {
+					"value": "@linkedService().SERVICE_PRINCIPAL_TOKEN",
+					"type": "Expression"
+				}
+			}
+		}
+	}
+}
