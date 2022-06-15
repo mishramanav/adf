@@ -1,0 +1,9 @@
+{
+	"name": "CENTRALSERVICES-AE-DF-INGESTION-DEV",
+	"location": "australiaeast",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "d412850d-1bf0-4e30-9d64-aeffdf4a72da",
+		"tenantId": "c099fbd5-a5ab-448e-b816-16a377ab3167"
+	}
+}
