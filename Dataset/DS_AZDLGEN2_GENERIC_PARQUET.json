@@ -1,0 +1,79 @@
+{
+	"name": "DS_AZDLGEN2_GENERIC_PARQUET",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "LS_AZDLGEN2_GENERIC_SP_AUTH",
+			"type": "LinkedServiceReference",
+			"parameters": {
+				"DL_URL": {
+					"value": "@dataset().DL_URL",
+					"type": "Expression"
+				},
+				"TENANT_ID": {
+					"value": "@dataset().TENANT_ID",
+					"type": "Expression"
+				},
+				"SERVICE_PRINCIPAL_ID": {
+					"value": "@dataset().SERVICE_PRINCIPAL_ID",
+					"type": "Expression"
+				},
+				"KEY_VAULT_URL": {
+					"value": "@dataset().KEY_VAULT_URL",
+					"type": "Expression"
+				},
+				"SERVICE_PRINCIPAL_SECRET": {
+					"value": "@dataset().KEY_VAULT_SECRET",
+					"type": "Expression"
+				}
+			}
+		},
+		"parameters": {
+			"DL_CONTAINER": {
+				"type": "String"
+			},
+			"DL_ROOT_DIR": {
+				"type": "String"
+			},
+			"DL_URL": {
+				"type": "String"
+			},
+			"KEY_VAULT_URL": {
+				"type": "String"
+			},
+			"KEY_VAULT_SECRET": {
+				"type": "String"
+			},
+			"DL_FILE_NAME": {
+				"type": "string"
+			},
+			"SERVICE_PRINCIPAL_ID": {
+				"type": "string"
+			},
+			"TENANT_ID": {
+				"type": "string"
+			}
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": {
+					"value": "@{dataset().DL_FILE_NAME}.parquet",
+					"type": "Expression"
+				},
+				"folderPath": {
+					"value": "@dataset().DL_ROOT_DIR",
+					"type": "Expression"
+				},
+				"fileSystem": {
+					"value": "@dataset().DL_CONTAINER",
+					"type": "Expression"
+				}
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": []
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}

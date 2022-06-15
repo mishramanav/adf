@@ -1,0 +1,60 @@
+{
+	"name": "DS_AZ_DATABRICKS_DELTA",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "LS_AZ_DATABRICKS_DELTA",
+			"type": "LinkedServiceReference",
+			"parameters": {
+				"DATABRICKS_HOST": {
+					"value": "@dataset().DATABRICKS_HOST",
+					"type": "Expression"
+				},
+				"DATABRICKS_CLUSTER": {
+					"value": "@dataset().DATABRICKS_CLUSTER",
+					"type": "Expression"
+				},
+				"KEY_VAULT_URL": {
+					"value": "@dataset().DATABRICKS_KEY_VAULT",
+					"type": "Expression"
+				},
+				"SERVICE_PRINCIPAL_TOKEN": {
+					"value": "@dataset().DATABRICKS_SECRET",
+					"type": "Expression"
+				}
+			}
+		},
+		"parameters": {
+			"DATABRICKS_DB": {
+				"type": "String"
+			},
+			"DATABRICKS_DELTA_TABLE": {
+				"type": "String"
+			},
+			"DATABRICKS_HOST": {
+				"type": "String"
+			},
+			"DATABRICKS_CLUSTER": {
+				"type": "String"
+			},
+			"DATABRICKS_KEY_VAULT": {
+				"type": "String"
+			},
+			"DATABRICKS_SECRET": {
+				"type": "String"
+			}
+		},
+		"annotations": [],
+		"type": "AzureDatabricksDeltaLakeDataset",
+		"typeProperties": {
+			"database": {
+				"value": "@dataset().DATABRICKS_DB",
+				"type": "Expression"
+			},
+			"table": {
+				"value": "@dataset().DATABRICKS_DELTA_TABLE",
+				"type": "Expression"
+			}
+		},
+		"schema": []
+	}
+}

@@ -1,0 +1,49 @@
+{
+	"name": "DS_AZGEN2_TEXT_FILE",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "LS_AZDLGEN2_GENERIC",
+			"type": "LinkedServiceReference",
+			"parameters": {
+				"DL_URL": "https://csaesadatalaketstgen2.dfs.core.windows.net",
+				"KEY_VAULT_URL": "https://CS-AE-KEY-DATALAKE-TST.vault.azure.net/",
+				"GEN2_STORAGE_KEY": "Gen2StorageKey"
+			}
+		},
+		"parameters": {
+			"file_sysetm": {
+				"type": "string"
+			},
+			"folder": {
+				"type": "string"
+			},
+			"file_name": {
+				"type": "string"
+			}
+		},
+		"annotations": [],
+		"type": "DelimitedText",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": {
+					"value": "@concat(split(dataset().file_name,'.')[0],'.',split(dataset().folder,'.')[1])",
+					"type": "Expression"
+				},
+				"folderPath": {
+					"value": "@split(dataset().folder,'.')[0]",
+					"type": "Expression"
+				},
+				"fileSystem": {
+					"value": "@dataset().file_sysetm",
+					"type": "Expression"
+				}
+			},
+			"columnDelimiter": ",",
+			"escapeChar": "\\",
+			"quoteChar": "\""
+		},
+		"schema": []
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}

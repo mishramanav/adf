@@ -1,0 +1,29 @@
+{
+	"name": "DS_AZDLGEN2_CSV",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "LS_AZDLGEN2_GENERIC",
+			"type": "LinkedServiceReference",
+			"parameters": {
+				"DL_URL": "https://csaesadatalaketstgen2.dfs.core.windows.net",
+				"KEY_VAULT_URL": "https://CS-AE-KEY-DATALAKE-TST.vault.azure.net/",
+				"GEN2_STORAGE_KEY": "Gen2StorageKey"
+			}
+		},
+		"annotations": [],
+		"type": "DelimitedText",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"folderPath": "TEST_D365_stage",
+				"fileSystem": "kotahi-raw-zone"
+			},
+			"columnDelimiter": ",",
+			"escapeChar": "\\",
+			"firstRowAsHeader": false,
+			"quoteChar": "\""
+		},
+		"schema": []
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}
